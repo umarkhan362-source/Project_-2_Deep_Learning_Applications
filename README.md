@@ -1,6 +1,8 @@
 # Project-2 Deep Learning Applications
 
-**Author:** Muhammad Umar Khan | **Course:** Introduction to Applied AI (BS 8th Semester, Department of Electronics) | **Platform:** Kaggle notebook
+**Author:** Muhammad Umar Khan | 
+**Course:** Introduction to Applied AI (BS 8th Semester, Department of Electronics) | 
+**Platform:** Kaggle notebook
 
 ## Project 2, Week 5:  Neural Networks, Convolutions, and Transfer Learning
 
