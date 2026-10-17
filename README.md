@@ -1,1 +1,1 @@
-# Project_-2_Dee_Learning_Applications
+# Project-2 Deep Learning Applications
