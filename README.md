@@ -1,6 +1,6 @@
 # Project-2 Deep Learning Applications
 
-## Project 2, Week 5: Scene Classification with Transfer Learning
+## Project 2, Week 5:  Neural Networks, Convolutions, and Transfer Learning
 
 - **Dataset:** Intel Image Classification, 6 classes (buildings, forest, glacier, mountain, sea, street), 14,034 train (split into 11,929 train + 2,105 validation) / 3,000 test
 - **Model:** ResNet-18 pretrained on ImageNet (11,179,590 parameters in total, new 6-class head)
