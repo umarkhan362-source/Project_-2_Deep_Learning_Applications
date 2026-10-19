@@ -169,9 +169,7 @@ Use the same evaluation transform (resize to 224 x 224, ImageNet normalisation) 
 
 **Note:** the run reported here was done on CPU (each epoch took about 760 to 1,040 seconds). On a GPU T4 an epoch takes about one minute.
 
-## 7. Week 6 proposal
 
-> **TODO (replace before Week 6):** one paragraph with the problem, who benefits, the dataset link, and the number of classes and images. Candidate domains from the lab: crop disease, medical images, manufacturing defects, documents, satellite images, or my own idea. The dataset should have at least a few hundred labelled images per class and a checked license.
 
 ## 7. Week 6 proposal
  
