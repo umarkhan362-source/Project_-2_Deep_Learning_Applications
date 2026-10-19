@@ -172,3 +172,22 @@ Use the same evaluation transform (resize to 224 x 224, ImageNet normalisation) 
 ## 7. Week 6 proposal
 
 > **TODO (replace before Week 6):** one paragraph with the problem, who benefits, the dataset link, and the number of classes and images. Candidate domains from the lab: crop disease, medical images, manufacturing defects, documents, satellite images, or my own idea. The dataset should have at least a few hundred labelled images per class and a checked license.
+
+## 7. Week 6 proposal
+ 
+**Domain: manufacturing defects.** Surface defects on hot-rolled steel strip are a standard quality-control problem, and the Week 5 pipeline (pretrained ResNet-18, feature extraction, then fine-tuning) transfers directly to it.
+ 
+**Problem.** Steel strip is inspected for six kinds of surface defect: crazing, inclusion, patches, pitted surface, rolled-in scale and scratches. These defects look similar at first glance and are slow and inconsistent to classify by eye. I will build a six-class image classifier that predicts the defect type from a single grayscale photo of the strip surface.
+ 
+**Who benefits.** Quality-control and process engineers in steel production. Fast, consistent defect typing lets them sort faulty material sooner, and because different defect types tend to have different causes, knowing the type can help trace a problem back to a stage of the production line.
+ 
+**Dataset.** The NEU Surface Defect Database (classification part, NEU-CLS) from the Surface Inspection Laboratory of Northeastern University. It has **6 classes with 300 images each, 1,800 images in total**, all grayscale at 200 x 200 pixels, collected from real industrial production lines. Link: <https://figshare.com/articles/dataset/NEU-CLS/28903550> (the original database is also listed on the Northeastern University site, and copies exist on Kaggle). License: I found it described as released for research use, so I will use it for this course project only and re-check the terms on the download page before publishing anything.
+ 
+**Plan.**
+- Stratified split 70% / 15% / 15%: $0.70 \times 1{,}800 = 1{,}260$ train, $270$ validation and $270$ test images (210 / 45 / 45 per class).
+- Repeat the single grayscale channel to 3 channels, resize 200 x 200 to 224 x 224, and normalise with the ImageNet mean and standard deviation, as pretrained ResNet-18 expects.
+- Augment the training set only (horizontal and vertical flips, mild brightness and contrast jitter), leaving validation and test images unchanged.
+- Train a new 6-class head first, then fine-tune `layer4` with two learning rates ($10^{-3}$ head, $10^{-4}$ `layer4`), keep the best validation epoch, and evaluate on the test set once.
+- Report test accuracy, per-class precision and recall, a confusion matrix and an error gallery, and compare the result with the Week 5 scene classifier.
+**Expected challenge.** With only 45 test images per class, one image changes a class recall by $1/45 = 2.2$ percentage points (and overall accuracy by $1/270 = 0.37$ points), so the results will be noisier than the 3,000-image Week 5 test set. I will state this when reporting the numbers and look closely at the images the model confuses.
+ 
