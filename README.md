@@ -170,22 +170,25 @@ Use the same evaluation transform (resize to 224 x 224, ImageNet normalisation) 
 **Note:** the run reported here was done on CPU (each epoch took about 760 to 1,040 seconds). On a GPU T4 an epoch takes about one minute.
 
 
-
 ## 7. Week 6 proposal
  
-**Domain: manufacturing defects.** Surface defects on hot-rolled steel strip are a standard quality-control problem, and the Week 5 pipeline (pretrained ResNet-18, feature extraction, then fine-tuning) transfers directly to it.
+**Domain: medical images (brain MRI).** Reading brain MRI scans is a standard medical-imaging task, and the Week 5 pipeline (pretrained ResNet-18, feature extraction, then fine-tuning) can be reused on it with a grayscale setting.
  
-**Problem.** Steel strip is inspected for six kinds of surface defect: crazing, inclusion, patches, pitted surface, rolled-in scale and scratches. These defects look similar at first glance and are slow and inconsistent to classify by eye. I will build a six-class image classifier that predicts the defect type from a single grayscale photo of the strip surface.
+**Problem.** A brain tumour has to be found on an MRI scan and its type identified, which takes a trained specialist and a lot of time per scan. I will build an image classifier that takes one brain MRI slice and predicts one of 4 classes: **glioma, meningioma, pituitary tumour, or no tumour**. The model is meant as a screening and second-look aid for a clinician, not as a diagnosis.
  
-**Who benefits.** Quality-control and process engineers in steel production. Fast, consistent defect typing lets them sort faulty material sooner, and because different defect types tend to have different causes, knowing the type can help trace a problem back to a stage of the production line.
+**Who benefits.** Radiologists and clinicians, who could use it to flag scans that need a closer look sooner, and students learning medical image analysis. Because a missed tumour costs far more than a false alarm, I will report recall (sensitivity) for each tumour class, not only overall accuracy.
  
-**Dataset.** The NEU Surface Defect Database (classification part, NEU-CLS) from the Surface Inspection Laboratory of Northeastern University. It has **6 classes with 300 images each, 1,800 images in total**, all grayscale at 200 x 200 pixels, collected from real industrial production lines. Link: <https://figshare.com/articles/dataset/NEU-CLS/28903550> (the original database is also listed on the Northeastern University site, and copies exist on Kaggle). License: I found it described as released for research use, so I will use it for this course project only and re-check the terms on the download page before publishing anything.
+**Dataset.** The Brain Tumor MRI Dataset on Kaggle (Masoud Nickparvar): **7,023 brain MRI images in 4 classes** (glioma, meningioma, no tumor, pituitary). It combines three source datasets, and the "no tumor" images come from the Br35H dataset. Link: <https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset>. I will check the licence on the Kaggle page before publishing anything and use the data for this course project only.
  
 **Plan.**
-- Stratified split 70% / 15% / 15%: $0.70 \times 1{,}800 = 1{,}260$ train, $270$ validation and $270$ test images (210 / 45 / 45 per class).
-- Repeat the single grayscale channel to 3 channels, resize 200 x 200 to 224 x 224, and normalise with the ImageNet mean and standard deviation, as pretrained ResNet-18 expects.
-- Augment the training set only (horizontal and vertical flips, mild brightness and contrast jitter), leaving validation and test images unchanged.
-- Train a new 6-class head first, then fine-tune `layer4` with two learning rates ($10^{-3}$ head, $10^{-4}$ `layer4`), keep the best validation epoch, and evaluate on the test set once.
-- Report test accuracy, per-class precision and recall, a confusion matrix and an error gallery, and compare the result with the Week 5 scene classifier.
-**Expected challenge.** With only 45 test images per class, one image changes a class recall by $1/45 = 2.2$ percentage points (and overall accuracy by $1/270 = 0.37$ points), so the results will be noisier than the 3,000-image Week 5 test set. I will state this when reporting the numbers and look closely at the images the model confuses.
- 
+- Use `GRAYSCALE = True` (MRI slices are grayscale, and the template repeats the channel to 3 for the pretrained network), resize to $224 \times 224$, and normalise with the ImageNet mean and standard deviation.
+- The image sizes differ and some images have extra margins, so I will inspect the sizes first and crop the borders if it is clearly needed before resizing.
+- If the dataset ships with separate training and testing folders, I will keep the testing folder untouched as my test set and use a grouped split of the training folder for validation (no group in both train and validation). If it does not, I will carve a grouped test set from the data.
+- Check for exact and near-duplicate images between the splits before training, because the dataset was assembled from several sources.
+- Train a new 4-class head first (`Linear(512, 4)`, $512 \times 4 + 4 = 2{,}052$ trainable parameters), then fine-tune `layer4` with two learning rates ($10^{-3}$ head, $10^{-4}$ `layer4`), use class weights if the classes turn out to be uneven, keep the best validation epoch by macro-F1, and evaluate on the test set once.
+- Report macro-F1, per-class precision and recall, a confusion matrix and an error gallery, and use Grad-CAM to see whether the model looks at the tumour region.
+**Expected challenges.**
+- **Possible shortcut from the data source.** The "no tumor" class comes from a different source dataset than the tumour classes, so the model could learn to recognise the source (image style, margins, intensity) instead of the tumour. I will test this with Grad-CAM and by looking at the errors.
+- **Label quality.** The dataset's author states that one source's glioma images were mislabelled and were replaced with images from another site. I will watch for confusion between tumour classes and treat suspicious errors as a possible label problem in my error analysis.
+- **Possible patient overlap.** If several slices come from the same patient and the file names do not show a patient ID, a random split can place the same patient in both train and test and make the score too high. I will check the file names for any patient or source ID, and say so in the README if the groups cannot be recovered.
+- **Not a clinical tool.** A high score on one public dataset does not show the model is safe for real patients, and I will state this when I report the results.
