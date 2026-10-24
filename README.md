@@ -290,23 +290,23 @@ Groups shared by train and validation: **0**; by train and test: **0**. Because 
 ## 4. Imbalance Handling
 
 Class weight and weighted cross-entropy:
-
+ 
 $$
 w_c=\frac{N}{K\cdot n_c},\qquad
 \mathcal{L}=-\frac{\sum_i w_{y_i}\log p_{i,y_i}}{\sum_i w_{y_i}}
 $$
-
+ 
 With N = 4,870 and K = 2:
-
+ 
 $$
 w_{\text{no\_tumor}}=\frac{4870}{2\times1167}=\frac{4870}{2334}=2.087,\qquad
 w_{\text{tumor}}=\frac{4870}{2\times3703}=\frac{4870}{7406}=0.658
 $$
-
+ 
 Check: 1,167 x 2.087 = 3,703 x 0.658 = 2,435 = N / K, so both classes contribute equally to the loss. A healthy image counts about 3.2 times as much as a tumour image.
-
+ 
 **Augmentation kept:** random resized crop (scale 0.8 to 1.0), horizontal and vertical flips, rotation up to 20 degrees, brightness and contrast jitter of 0.15. Flips and rotations are used because MRI slices come in many orientations (axial, sagittal, coronal) and the head position varies. Hue and saturation jitter is excluded because the scans are grey-scale. Evaluation uses a plain resize only.
-
+ 
 ---
 
 ## 5. Training and Model Selection
