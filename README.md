@@ -200,7 +200,7 @@ Use the same evaluation transform (resize to 224 x 224, ImageNet normalisation) 
 
 **Who benefits:** radiologists and clinicians in an MRI reporting workflow, and the patients waiting in their queue. **Why it matters:** a missed tumour (false negative) delays treatment, while a false alarm costs extra review time. The model is meant to prioritise scans for a radiologist, so the metric that matters most is sensitivity at a stated specificity, not accuracy.
 
-**Dataset:** Brain Tumor MRI Dataset (Kaggle, `masoudnickparvar/brain-tumor-mri-dataset`); 7,200 images indexed, 4 folders (glioma, meningioma, pituitary, notumor) merged into k = 2 classes (`no_tumor`, `tumor`); labels come from the dataset's own folder names. The labelling process, the licence and the source scanners are **not documented in the notebook** and should be confirmed on the Kaggle dataset page before any publication.
+**Dataset:** Brain Tumor MRI Dataset (Kaggle, https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset); 7,200 images indexed, 4 folders (glioma, meningioma, pituitary, notumor) merged into k = 2 classes (`no_tumor`, `tumor`); labels come from the dataset's own folder names. The labelling process, the licence and the source scanners are **not documented in the notebook** and should be confirmed on the Kaggle dataset page before any publication.
 
 **Data audit:** imbalance ratio 3.0; exact duplicates 340 files in 153 groups (187 redundant copies removed); test images with a near-duplicate in train 230 of 974 (23.6%), validation 260 of 1,169 (22.2%), all removed from validation and test; split by image file name (no patient id exists), 0 shared groups.
 
