@@ -433,4 +433,4 @@ The balanced 8-panel figure (one correct case per original folder plus errors) s
 - Seeds: `torch.manual_seed(42)`, `np.random.seed(42)`, `StratifiedGroupKFold(random_state=42)`.
 - Saved checkpoint: `week6_model.pt` (`state_dict`, `classes = ['no_tumor', 'tumor']`, `backbone = 'resnet18'`, `img_size = 224`, `grayscale = True`).
 - The operating threshold **0.986 is not stored in the checkpoint** and must be applied separately at prediction time.
-- Notebook: `week-6-brain-tumour-mri.ipynb`.
+- Notebook: week-6-brain-tumour-mri.ipynb.
