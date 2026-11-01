@@ -434,3 +434,274 @@ The balanced 8-panel figure (one correct case per original folder plus errors) s
 - Saved checkpoint: `week6_model.pt` (`state_dict`, `classes = ['no_tumor', 'tumor']`, `backbone = 'resnet18'`, `img_size = 224`, `grayscale = True`).
 - The operating threshold **0.986 is not stored in the checkpoint** and must be applied separately at prediction time.
 - Notebook: https://github.com/umarkhan362-source/Project_-2_Deep_Learning_Applications/blob/main/week-6-brain-tumour-mri.ipynb.
+
+
+## Week 7: Text and Multimodal AI
+
+Project 2 (Deep Learning Applications), individual. Domain: brain-tumour MRI (my Week 6 ResNet-18 model).
+Notebook: `week-7-text-multimodal-ai.ipynb` (Kaggle, CPU). Every number below is copied from that notebook's output.
+
+### Summary (the lab's README template, filled in with measured values)
+
+- **Text classifier:** SMS Spam Collection (Almeida et al. 2011), 5,572 texts (747 spam, 13.4%), macro-F1 **0.974** (word 1-2 grams) vs **0.982** (character 2-5 grams)
+- **Top positive / negative features:** call, txt, free, text, reply, uk / my, me, ok, that, it, but
+- **NER on my domain:** out-of-the-box F1 **0.722** -> with entity ruler **1.000** on 18 held-out entities (provided lab sentences: 0.533 -> 0.875)
+- **Regex fields extracted:** CNIC, mobile, amount, date, e-mail, invoice no., scan file, tumour size, MRN, age, MRI sequence; **false positives tested:** 5 negative tests, 8/8 domain tests pass
+- **OCR:** CER raw **0.000** -> after correction rules **0.000** on the synthetic invoice (lab pairs: 0.062 / 0.059 / 0.143 -> 0.000)
+- **Pipeline:** Week 6 image model + text evidence -> masked JSON record (example below)
+- **Privacy:** CNIC, phone, e-mail and MRN masked before extraction and logging; the output JSON was searched for leaked digits and none were found
+
+---
+
+### 1. TF-IDF by hand
+
+Smooth IDF and length-1 (L2) normalisation, as scikit-learn computes them:
+
+$$\text{idf}(t)=\ln\!\left(\frac{1+N}{1+\text{df}(t)}\right)+1 \qquad \mathbf v_d=\frac{\text{tf}\cdot\text{idf}}{\lVert \text{tf}\cdot\text{idf}\rVert_2} \qquad \cos(a,b)=\mathbf v_a\cdot\mathbf v_b$$
+
+Three messages: d1 = "win free cash now", d2 = "call me now", d3 = "free call now" (N = 3).
+
+| Word | df | idf = ln(4/(1+df)) + 1 | d1 weight (by hand) | d1 weight (scikit-learn) |
+|---|---|---|---|---|
+| win | 1 | ln 2 + 1 = 1.6931 | 1.6931 / 2.8969 = 0.584 | 0.584 |
+| free | 2 | ln(4/3) + 1 = 1.2877 | 1.2877 / 2.8969 = 0.445 | 0.445 |
+| cash | 1 | ln 2 + 1 = 1.6931 | 0.584 | 0.584 |
+| now | 3 | ln 1 + 1 = 1.0000 | 1.0000 / 2.8969 = 0.345 | 0.345 |
+
+$$\lVert \mathbf w_{d_1}\rVert=\sqrt{1.6931^2+1.2877^2+1.6931^2+1.0^2}=\sqrt{8.3918}=2.8969$$
+
+"now" gets the lowest weight because it appears in every message, so it cannot tell messages apart. The notebook asserts that the hand values equal the library values.
+
+$$\cos(d_2,d_3)=\underbrace{0.548\times0.620}_{\text{call}}+\underbrace{0.425\times0.481}_{\text{now}}=0.340+0.204=\mathbf{0.544}\quad(\text{slide 10: }0.54)$$
+
+---
+
+### 2. Text classification: word vs character n-grams
+
+Pipeline: `TfidfVectorizer` -> `LogisticRegression(class_weight='balanced')`, 80/20 stratified split (`random_state=42`): 4,457 training and 1,115 test messages (966 ham, 149 spam).
+
+$$P(\text{spam}\mid x)=\sigma(\mathbf w\cdot\mathbf x+b),\;\;\sigma(z)=\frac1{1+e^{-z}} \qquad \text{tf}'=1+\ln(\text{tf}) \qquad c_k=\frac{n_{\text{samples}}}{K\,n_k}$$
+
+"Always ham" already scores $4825/5572=0.866$ accuracy, so accuracy is not the metric: I report macro-F1 and spam precision/recall.
+
+| Model | Features | Macro-F1 | Spam precision | Spam recall | Spam F1 | Errors |
+|---|---|---|---|---|---|---|
+| word 1-2 grams (`min_df=2`, sublinear tf) | 12,128 | **0.974** | 0.979 | 0.933 | 0.955 | 13 |
+| char_wb 2-5 grams (`min_df=2`, sublinear tf) | 36,449 | **0.982** | 0.986 | 0.953 | 0.969 | 9 |
+
+Confusion matrices recovered from the reports:
+
+| | Word: pred ham | Word: pred spam | Char: pred ham | Char: pred spam |
+|---|---|---|---|---|
+| **true ham (966)** | 963 | 3 | 964 | 2 |
+| **true spam (149)** | 10 | 139 | 7 | 142 |
+
+$$P_{\text{spam}}^{\text{word}}=\frac{139}{139+3}=0.979,\quad R_{\text{spam}}^{\text{word}}=\frac{139}{149}=0.933,\quad \text{macro-}F_1=\frac{0.993+0.955}{2}=0.974$$
+
+$$P_{\text{spam}}^{\text{char}}=\frac{142}{144}=0.986,\quad R_{\text{spam}}^{\text{char}}=\frac{142}{149}=0.953,\quad \text{macro-}F_1=\frac{0.995+0.969}{2}=0.982$$
+
+The character model is ahead by 0.008 macro-F1, which is only 4 of 1,115 messages, so on clean English SMS I treat the models as roughly equal. The case for characters is robustness, and the price is $36{,}449/12{,}128=3.0\times$ more features and weights that are fragments, not words.
+
+**Top features (word model).**
+
+| Direction | n-grams | My reading |
+|---|---|---|
+| Spam-like | call, txt, free, text, reply, uk, to, www, mobile, claim, stop, your | mostly the classic SMS-spam vocabulary; "to" and "your" are function words (shortcuts) |
+| Ham-like | my, me, ok, that, it, but, ll, gt, lt, can, what, da | chat words; "gt" and "lt" are leftovers of `&gt;` / `&lt;`, "da" is an Indian-English chat particle |
+
+The shortcut has a cost: the ham message "Waiting for your call." scores $p=0.85$ ($z=\ln\frac{0.85}{0.15}=1.74$) because "your" and "call" are both top spam features.
+
+**Error analysis (word model, 13 errors = 10 false negatives + 3 false positives), classified by hand:**
+
+| Category | Count | Share | Example |
+|---|---|---|---|
+| model error | 8 | 61.5% | "ringtoneking 84484" (p = 0.19); "Waiting for your call." (p = 0.85) |
+| genuinely ambiguous | 4 | 30.8% | a warning about a scam that quotes the scam (p = 0.14) |
+| label error | 1 | 7.7% | "Do you realize that in about 40 years..." labelled spam (p = 0.09) |
+
+**Tricky messages** (flagged as spam when $p\ge0.5$):
+
+| Message | Expected | Word p(spam) | Char p(spam) |
+|---|---|---|---|
+| W1N a FR33 pr1ze!! txt CLAIM now | spam | 0.99 | 0.85 |
+| kal milte hain, 5 baje | ham | 0.19 | 0.12 |
+| C0ngrats!! U w0n Rs 25000 pr1ze. Cl@im by txt 5588 now (mine) | spam | 0.81 | 0.88 |
+| Mubarak ho! Aap ne 50000 ka inaam jeeta hai, abhi 8000 par SMS karein (mine, Roman Urdu) | spam | **0.32 (missed)** | 0.53 (barely over) |
+| Yaar meeting kal subah 9 baje hai, notes bhej dena (mine, Roman Urdu) | ham | 0.13 | 0.12 |
+
+Neither model was trained on Roman Urdu, so the 0.53 is untrained behaviour, not proof of support.
+
+---
+
+### 3. Named-entity recognition, measured
+
+An entity counts as correct only if **both its exact text and its label** match the gold annotation:
+
+$$P=\frac{TP}{TP+FP}\qquad R=\frac{TP}{TP+FN}\qquad F_1=\frac{2PR}{P+R}$$
+
+**Provided lab sentences (6 sentences, 16 gold entities)**
+
+| Pipeline | TP | FP | FN | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| spaCy `en_core_web_sm` out of the box | 8 | 6 | 8 | 8/14 = 0.571 | 8/16 = 0.500 | **0.533** |
+| + 7 entity-ruler patterns | 14 | 2 | 2 | 14/16 = 0.875 | 14/16 = 0.875 | **0.875** |
+
+Out-of-the-box failures: "Engro Fertilizers" labelled PERSON, "30/09/2026" labelled GPE, a mobile number labelled DATE, "PKR 45,000" not found, "250,000" labelled CARDINAL.
+
+**My domain: 10 brain-tumour MRI report sentences (names, amounts and dates invented).** Rules were written from sentences 1-5 only; sentences 6-10 are held out.
+
+| Set | Gold entities | Pipeline | TP | FP | FN | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|---|---|
+| 1-5 (rule-writing) | 20 | spaCy alone | 10 | 6 | 10 | 0.625 | 0.500 | 0.556 |
+| 1-5 (rule-writing) | 20 | + domain rules | 20 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| **6-10 (held out)** | 18 | spaCy alone | 13 | 5 | 5 | 0.722 | 0.722 | **0.722** |
+| **6-10 (held out)** | 18 | + domain rules | 18 | 0 | 0 | 1.000 | 1.000 | **1.000** |
+
+$$F_1^{\text{held-out, before}}=\frac{2(0.722)(0.722)}{0.722+0.722}=0.722\qquad F_1^{\text{held-out, after}}=\frac{2(1.000)(1.000)}{1.000+1.000}=1.000$$
+
+What the rules actually fixed on the held-out set (all five are fixed formats):
+
+| spaCy alone said | Gold | Fixed by |
+|---|---|---|
+| `05/12/2026` as ORG | DATE | dd/mm/yyyy date pattern |
+| `PKR 52,500` as EVENT | MONEY | money pattern |
+| `80,000` as CARDINAL | `Rs. 80,000` MONEY | money pattern |
+| `Hassan Raza PKR` as PERSON | `Hassan Raza` PERSON | money pattern |
+| `24,000` as CARDINAL | `PKR 24,000` MONEY | money pattern |
+
+**Honest reading.** 13 of 18 held-out entities (all four hospitals, the cities, "9 January 2027", four of five people) were already correct before any rule, so this set barely tests my hospital-suffix pattern or city list. One wrong entity moves F1 by about $1/18=0.056$, and the held-out sentences share their formats with the first five. The result shows that **format rules carry over to new sentences of the same style**, not that they carry over to unseen styles.
+
+**What I would use for what is left:** closed vocabularies (hospital names, cities) -> rules or a gazetteer; rigid formats (amounts, dd/mm/yyyy) -> regex or ruler; open-class person names and org-versus-person cases (e.g. a hospital named after a person) -> a model trained on my own annotated data, which needs far more than 38 gold entities.
+
+---
+
+### 4. Regex fields with negative tests
+
+| Field | Pattern | Example match |
+|---|---|---|
+| CNIC | `\b\d{5}-\d{7}-\d\b` | 35202-1234567-1 |
+| Mobile | `(?:\+92[- ]?\|\b0)3\d{2}[- ]?\d{7}\b` | 0300-1234567, +92 300 1234567 |
+| Amount | `\b(?:PKR\|Rs\.?)\s?([\d,]+(?:\.\d{1,2})?)` | Rs. 12,500.50 -> 12,500.50 |
+| Date | `\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b` | 30/09/2026 |
+| E-mail | `\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b` | info@engro.com.pk |
+| Invoice no. | `\b(?:Invoice\s+)?No\.?\s*(\d{3,})\b` | Invoice No. 4417 -> 4417 |
+| Scan file (mine) | `\b(?:Tr\|Te)-(?:gl\|me\|no\|pi)_\d+\.(?:jpe?g\|png)\b` | Te-gl_1.jpg |
+| Tumour size (mine) | `\b\d+(?:\.\d+)?\s?(?:mm\|cm)\b` | 2.5 cm |
+| MRN (mine) | `\bMRN[- ]?\d{6,8}\b` | MRN 4471823 |
+| Age (mine) | `\baged?\s+(\d{1,2}\|1[01]\d)\b` | aged 46 -> 46 |
+| MRI sequence (mine) | `(?-i:\b(?:T1\|T2\|FLAIR\|DWI)\b)` | T2, FLAIR (case-sensitive) |
+
+| Test suite | Positive | Negative | Passed |
+|---|---|---|---|
+| Lab tests | 3 | 2 (14-digit order number is not a CNIC; "Room 0300" is not a mobile) | 5 / 5 |
+| My domain tests | 3 | **5** | **8 / 8 = 100%** |
+
+My five negative tests: `BP 120 mmHg and glucose 5 mmol/L` (not a size), `She has a flair for painting` (not the FLAIR sequence), `Tx-gl_5.jpg and Te-xx_9.jpg` (wrong prefix / class code), `MRN 12 was seen in age 2026` (too few digits; not an age), `Doctors 500 mg twice daily` (not an amount).
+
+**A pattern that matched too much.** My first tumour-size pattern `\d+\s?mm` returned `['120 mm']` on "BP 120 mmHg" (the "mm" of mmHg). Adding `\b` at both ends fixed it, because a boundary after "mm" fails when "Hg" follows. The lab's `amount` pattern had the same flaw at the front: without `\b` before "Rs", "Doctors 500 mg" returned `['500']`. After the fix both return `[]`.
+
+---
+
+### 5. Character error rate and OCR repair
+
+$$\text{CER}=\frac{S+D+I}{N}\quad(\text{Levenshtein edits} / \text{reference length})$$
+
+| Reference | OCR output | Edits | N | CER before | CER after `fix_ocr` |
+|---|---|---|---|---|---|
+| `Invoice No. 4417` | `Invoice N0. 4417` | 1 | 16 | 1/16 = **0.062** | **0.000** |
+| `Total: PKR 12,500` | `Total: PKR 12,5O0` | 1 | 17 | 1/17 = **0.059** | **0.000** |
+| `Due 30/09/2026` | `Due 3O/09/2O26` | 2 | 14 | 2/14 = **0.143** | **0.000** |
+
+The repair rule changes a letter O to 0 only next to digits (and `N0.` to `No.`), so "Total" and "Due" are untouched.
+
+**Synthetic invoice (EasyOCR):**
+
+| Measure | Raw OCR | After correction |
+|---|---|---|
+| CER | **0.000** | **0.000** |
+| Field-level accuracy (mobile, amount, date, invoice no.) | 4/4 = 1.00 | 4/4 = 1.00 |
+
+The raw CER is already zero because the image is clean rendered text (one font, black on white, horizontal, sharp, no noise or skew), which is far easier than a phone photo of a real report. A CER of 0.059 can still mean a wrong amount, since one wrong character breaks the whole field, which is why field-level accuracy is reported as well. I expect a higher raw CER on my own scans and will measure it on five real scans with hand-typed reference text.
+
+---
+
+### 6. Pipeline: image model + text evidence -> one masked JSON record
+
+Late fusion with transparent rules (no learned weight, because there are no labelled image-note pairs):
+
+$$\text{REFER}\iff\big(p_{\text{tumor}}\ge0.986\big)\;\text{OR}\;\big(\text{urgent terms}\neq\varnothing\big),\qquad \text{general form: } p=w\,p_{\text{image}}+(1-w)\,p_{\text{text}}$$
+
+| Component | Setting |
+|---|---|
+| Image model | Week 6 ResNet-18, classes `['no_tumor', 'tumor']`, 224 px, grayscale |
+| Operating threshold | 0.986 (Week 6 validation point); logit gap $\ln\frac{0.986}{0.014}=4.25$ |
+| Text evidence | spaCy + domain entity ruler, regex fields, urgent terms (headache, seizure, vomit, ...) |
+| Masking | `mask_pii` runs **first**: CNIC, mobile, e-mail and MRN replaced by `[CNIC]`, `[PHONE]`, `[EMAIL]`, `[MRN]` |
+
+**Example record** (Te-gl_1.jpg from the dataset's Testing folder; entities shown compactly):
+
+```json
+{
+  "image": "Te-gl_1.jpg",
+  "image_probabilities": {"no_tumor": 0.004, "tumor": 0.996},
+  "note_masked": "Patient Imran Qureshi, aged 46, has had headaches for 3 weeks with vomiting and one seizure on 10/11/2026. MRI shows a 2.5 cm lesion on T2. Referred from Mayo Hospital Lahore. [MRN]. CNIC [CNIC], family mobile [PHONE].",
+  "text_evidence": {
+    "entities": [["Imran Qureshi","PERSON"], ["46","DATE"], ["3 weeks","DATE"], ["10/11/2026","DATE"],
+                 ["2.5 cm","QUANTITY"], ["T2","CARDINAL"], ["Mayo Hospital","ORG"], ["Lahore","GPE"],
+                 ["CNIC","ORG"], ["CNIC","ORG"]],
+    "fields": {"date": ["10/11/2026"], "tumour_size": ["2.5 cm"], "age": ["46"], "sequence": ["T2"]},
+    "urgent_terms": ["headache", "seizure", "vomit"]
+  },
+  "decision": "REFER",
+  "reasons": ["image model: P(tumor) = 1.00", "note mentions: headache, seizure, vomit"],
+  "flags": [],
+  "disclaimer": "Decision support only; a qualified human decides."
+}
+```
+
+(The reason text shows `1.00` only because 0.996 is printed to two decimals.)
+
+**Reasons check:** $0.996\ge0.986$ so the image reason fires; the note contains three urgent terms so the text reason fires; both are positive, so no disagreement flag.
+
+**Wrong entities in `text_evidence`.** Against my five-entity gold list for the note, 5 of 10 entities are correct and none is missed: $P=5/10=0.50$, $R=5/5=1.00$, $F_1=0.667$. The wrong or unexpected ones are `46` (an age, labelled DATE), `T2` (an MRI sequence, labelled CARDINAL) and two `CNIC` entries labelled ORG (the word "CNIC" and the `[CNIC]` placeholder). They do not change the decision, but the two ORG entries would be harmful as stored data, so placeholders should be filtered out of the entity list.
+
+**Image and note disagree:**
+
+| Case | $p_{\text{tumor}}$ | Urgent terms | Decision | Flag |
+|---|---|---|---|---|
+| A: healthy image (Te-no_1.jpg) + urgent note | 0.017 (< 0.986) | headache, seizure, vomit | REFER | IMAGE/NOTE DISAGREE |
+| B: tumour image (Te-gl_1.jpg) + routine note | 0.996 (>= 0.986) | none | REFER | IMAGE/NOTE DISAGREE |
+
+A missed tumour costs more than an extra review, so any positive source keeps the case on REFER and the flag sends it to a human reviewer. The disagreement itself is the useful signal.
+
+---
+
+### 7. Privacy
+
+- **Masked before extraction.** `case_record` calls `mask_pii(note)` first and runs entity and field extraction on the masked text. Extraction copies text, so extracting from the original note would put the identifier back into `text_evidence` (the bug described in the lab).
+- **Leak check.** The output JSON was searched for `35202-1234567-1`, `0300-1234567`, `35202`, `1234567` and `4471823`: **no fragments found**.
+- **Scope.** The note still contains a patient name (names are not masked by the lab's rules), so the record is for internal decision support, not for sharing.
+- All names, numbers and dates in the examples are invented.
+
+---
+
+### 8. Check Your Understanding
+
+| # | Question | Working | Answer |
+|---|---|---|---|
+| 1 | Smooth IDF, word in 9 of 1,000 documents | $\ln\frac{1001}{10}+1=\ln(100.1)+1=4.6062+1$ | **5.606** |
+| 2 | Why can lowercasing hurt a spam classifier? | "FREE", "WIN", "CLAIM" are shouted; lowercasing merges them with ordinary "free", "win", so the all-caps cue is lost. (scikit-learn's `TfidfVectorizer` lowercases by default, so my models do this too.) | see working |
+| 3 | 10 gold, 8 predicted, 6 exactly right | $P=\frac68=0.750$, $R=\frac6{10}=0.600$, $F_1=\frac{2(0.75)(0.60)}{1.35}$ | **P 0.750, R 0.600, F1 0.667** |
+| 4 | CER of "PKR 4,5OO" against "PKR 4,500" (9 characters) | 2 substitutions: $\frac{2+0+0}{9}$ | **0.222** |
+| 5 | Image 0.30, text 0.80, $w=0.5$ | $0.5(0.30)+0.5(0.80)=0.15+0.40$ | **0.55** |
+| 6 | Why mask identifiers before extraction? | extraction copies text, so unmasked identifiers reappear in `text_evidence`, logs and shared records; masking first means no later step ever sees them | see working |
+
+---
+
+### Limitations
+
+- The held-out NER set has only 18 entities and shares formats with the rule-writing set; a score of 1.000 is a small-sample result.
+- spaCy already handled every organisation in the held-out sentences, so my hospital-suffix pattern and city list are not yet tested.
+- The OCR test used one clean synthetic image; real scans are still to be measured.
+- The 0.986 operating threshold comes from my Week 6 validation set and is not stored in the checkpoint; the image reason will not fire for a tumour image scoring, say, 0.90.
+- This is decision support only; a qualified human decides.
