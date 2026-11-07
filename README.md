@@ -705,3 +705,262 @@ A missed tumour costs more than an extra review, so any positive source keeps th
 - The OCR test used one clean synthetic image; real scans are still to be measured.
 - The 0.986 operating threshold comes from my Week 6 validation set and is not stored in the checkpoint; the image reason will not fire for a tumour image scoring, say, 0.90.
 - This is decision support only; a qualified human decides.
+
+# Project 2, Week 8: Ship It, Show It
+
+**Brain-Tumour MRI Screening API (FastAPI) with clinical-note evidence**
+
+**Author:** Muhammad Umar Khan | **Course:** Introduction to Applied AI (BS 8th Semester, Department of Electronics)
+
+**Repository:** https://github.com/umarkhan362-source/Project_-2_Deep_Learning_Applications
+
+**Platform:** local Windows machine, Python virtual environment, FastAPI and uvicorn (CPU only)
+
+**Files (folder `p2-api/`):** `app.py` (service), `test_api.py` (8 tests), `bench.py` (latency), `pytest.ini`, `week6_model.pt` (Week 6 checkpoint), `sample.jpeg` (one brain MRI image).
+
+**Values carried over from my earlier weeks**
+
+| Value | Used for | Source |
+|---|---|---|
+| classes `['no_tumor', 'tumor']`, ResNet-18, 224 px, grayscale | the served model | Week 6 notebook |
+| threshold 0.986; sensitivity 0.972; specificity 0.965 | operating point of `tumor` | Week 6 notebook |
+| PPV 0.997 on the test set, about 0.59 at 5% prevalence | limits of the model | Week 6 notebook |
+| 13 urgent terms, 11 regex patterns, PII masking order | `/analyze` text evidence | Week 7 notebook |
+
+---
+
+## Summary
+
+- **Service:** FastAPI with `GET /health`, `POST /predict` (one MRI slice) and `POST /analyze` (MRI slice + clinical note), interactive page at `/docs`
+- **Model served:** my Week 6 ResNet-18 checkpoint (`classes = ['no_tumor', 'tumor']`, 224 px, grayscale), loaded **once** at start-up
+- **Operating point:** `tumor` is flagged when $P(\text{tumor})\ge0.986$ (Week 6, chosen on validation for recall $\ge0.95$; test sensitivity 0.972, specificity 0.965)
+- **Text evidence (Week 7):** PII masked first (CNIC, mobile, e-mail, MRN), regex fields, brain-tumour urgent terms, optional spaCy entities
+- **Safety:** 5 MB upload limit, 2,000-character note limit, wrong or corrupt files rejected with 4xx codes (never a stack trace), optional API key
+- **Tests:** 8 automated tests (API, parity with the direct model, errors, PII): **FILL IN** (paste the pytest line, expected `8 passed`)
+- **Latency:** **FILL IN** p50 and p95 with my hardware (section 5)
+
+## 1. Architecture
+
+`MRI slice` $\to$ validate (type, size, readable) $\to$ ResNet-18 $\to$ softmax $\to$ threshold 0.986
+`note` $\to$ **mask PII first** $\to$ regex fields + urgent terms (+ optional NER)
+$\Rightarrow$ transparent rule $\to$ JSON record with reasons, flags and a disclaimer
+
+| Piece | Where | Why |
+|---|---|---|
+| `lifespan()` | start-up | loads the checkpoint and builds the transform once, not per request |
+| `read_image()` | before any model code | rejects 415, 413 and 400 early, so bad files never reach the network |
+| `run_in_threadpool(classify, ...)` | `/predict`, `/analyze` | keeps the heavy forward pass off the event loop |
+| `mask_pii()` | first step on the note | extraction copies text, so identifiers must be gone before any extractor runs |
+| `THRESHOLD = 0.986` | settings | the Week 6 operating point is **not** stored in the checkpoint |
+
+**Settings (environment variables):** `MODEL_PATH` (default `week6_model.pt`), `POSITIVE` (default `tumor`), `THRESHOLD` (default `0.986`, use `0.5` for the plain argmax rule), `API_KEY` (optional).
+
+## 2. How to run
+
+```
+python -m venv .venv
+.venv\Scripts\activate                       (PowerShell: .venv\Scripts\Activate.ps1)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install fastapi uvicorn python-multipart pillow pytest httpx numpy
+pip install spacy && python -m spacy download en_core_web_sm        (optional: NER entities)
+uvicorn app:app --reload                     (open http://127.0.0.1:8000/docs)
+pytest -q test_api.py                        (needs week6_model.pt and sample.jpeg in the folder)
+python bench.py                              (while the server is running, without --reload)
+```
+
+The CPU-only PyTorch index avoids a 2 GB GPU download. Put `week6_model.pt` (from Week 6) and one MRI image named `sample.jpeg` in the folder.
+
+## 3. Endpoints, decision rule and equations
+
+| Endpoint | Input | Output |
+|---|---|---|
+| `GET /health` | none | status, model_loaded, classes, positive class, threshold, backbone, img_size, grayscale, entities_enabled |
+| `POST /predict` | `file` (JPEG or PNG, up to 5 MB) | label, probabilities, latency_ms, threshold, positive_flag |
+| `POST /analyze` | `file` + `note` (up to 2,000 characters) | prediction, masked note, entities, fields, urgent terms, decision, reasons, flags, disclaimer |
+
+```
+curl.exe -X POST http://127.0.0.1:8000/predict -F "file=@sample.jpeg;type=image/jpeg"
+curl.exe -X POST http://127.0.0.1:8000/analyze -F "file=@sample.jpeg;type=image/jpeg" -F "note=Headaches and one seizure since Monday. Call 0300-1234567"
+curl.exe -X POST http://127.0.0.1:8000/predict -F "file=@app.py;type=text/plain"          (returns 415)
+```
+
+**Probabilities and the operating point.** The two output logits become probabilities with the softmax, and for two classes $P(\text{tumor})$ depends only on the logit gap $\Delta=z_{\text{tumor}}-z_{\text{no\_tumor}}$:
+
+$$p_c=\frac{e^{z_c}}{\sum_j e^{z_j}},\qquad p_{\text{tumor}}=\frac{1}{1+e^{-\Delta}},\qquad \Delta=\ln\frac{p}{1-p}$$
+
+| Threshold | Logit gap needed | Meaning |
+|---|---|---|
+| 0.500 | $\ln\frac{0.5}{0.5}=0$ | plain argmax |
+| **0.986** | $\ln\frac{0.986}{0.014}=\ln 70.43=\mathbf{4.25}$ | Week 6 operating point: the model must favour "tumor" by more than 4.25 logits |
+
+$$\text{positive\_flag}=\big[\,p_{\text{tumor}}\ge0.986\,\big],\qquad \text{label}=\begin{cases}\text{tumor}&\text{if positive\_flag}\\ \text{no\_tumor}&\text{otherwise}\end{cases}$$
+
+**Decision rule for `/analyze` (same as Week 7).**
+
+$$\text{REFER}\iff\big(p_{\text{tumor}}\ge0.986\big)\;\text{OR}\;\big(\text{urgent terms}\neq\varnothing\big)$$
+
+Urgent terms (matched at the start of a word): headache, seizure, vomit, blurred vision, vision loss, weakness, numbness, confusion, drowsy, unconscious, slurred speech, memory loss, loss of balance. If exactly one source is positive, `flags` contains `IMAGE/NOTE DISAGREE: send to a human reviewer`. A missed tumour costs more than an extra review, so any positive source keeps the case on REFER.
+
+**Example `/analyze` record** (abridged; the values for this image and note are the Week 7 notebook values for `Te-gl_1.jpg`, `latency_ms` varies per call):
+
+```json
+{
+  "prediction": {"label": "tumor", "probabilities": {"no_tumor": 0.004, "tumor": 0.996},
+                 "latency_ms": "...", "threshold": 0.986, "positive_flag": true},
+  "note_masked": "Patient Imran Qureshi, aged 46, has had headaches for 3 weeks with vomiting and one seizure on 10/11/2026. MRI shows a 2.5 cm lesion on T2. Referred from Mayo Hospital Lahore. [MRN]. CNIC [CNIC], family mobile [PHONE].",
+  "fields": {"date": ["10/11/2026"], "tumour_size": ["2.5 cm"], "age": ["46"], "sequence": ["T2"]},
+  "urgent_terms": ["headache", "seizure", "vomit"],
+  "decision": "REFER",
+  "reasons": ["image: P(tumor) = 0.996", "note mentions: headache, seizure, vomit"],
+  "flags": [],
+  "disclaimer": "Decision support only; a qualified human decides."
+}
+```
+
+## 4. Error handling and privacy
+
+| Situation | Status | Message |
+|---|---|---|
+| File is not a JPEG or PNG (for example a PDF or `.py` file) | **415** | Upload a JPEG or PNG image |
+| Image larger than 5 MB | **413** | Image larger than 5 MB |
+| Content type says image but the bytes are not an image | **400** | File is not a readable image |
+| File missing, or note missing in `/analyze` | **422** | validation error (FastAPI) |
+| Note longer than 2,000 characters | **422** | Note longer than 2,000 characters |
+| Wrong or missing `X-API-Key` (only when `API_KEY` is set) | **401** | Invalid or missing API key |
+
+**Size limit.** $5\times1024\times1024=5{,}242{,}880$ bytes. A file of $5{,}242{,}881$ bytes (limit + 1) is rejected with 413; the test uses exactly that size.
+
+**Model file size.** ResNet-18 without its 1,000-class head has $11{,}179{,}590-3{,}078=11{,}176{,}512$ parameters (from the Week 5 numbers). With the 2-class head:
+
+$$11{,}176{,}512+(512\times2+2)=11{,}177{,}538\ \text{parameters},\qquad 11{,}177{,}538\times4\ \text{bytes}\approx44.7\ \text{MB}$$
+
+so `week6_model.pt` fits GitHub's 100 MB limit.
+
+**Privacy.** `mask_pii` runs before any extraction, so a CNIC, mobile number, e-mail or MRN never appears in the response. The Week 7 note contains `35202-1234567-1`, `0300-1234567` and `MRN 4471823`; the test searches the whole JSON for `35202`, `1234567` and `4471823` and finds none. The patient name is not masked, so the record is for internal decision support, not for sharing.
+
+**API key (Task A.6, optional).** Setting `API_KEY` turns the check on; no code change is needed.
+
+```
+set API_KEY=choose-a-long-secret                 (PowerShell: $env:API_KEY="choose-a-long-secret")
+uvicorn app:app
+curl.exe -X POST http://127.0.0.1:8000/predict -F "file=@sample.jpeg;type=image/jpeg"                                   (401)
+curl.exe -X POST http://127.0.0.1:8000/predict -H "X-API-Key: choose-a-long-secret" -F "file=@sample.jpeg;type=image/jpeg"   (200)
+```
+
+The call without the header returns 401, and the call with it returns the prediction (see the screenshot below). The key is never committed to GitHub.
+
+## 5. Tests and latency (my measured results)
+
+Eight automated tests in `test_api.py` (one shared client, so the model loads once, as in production):
+
+| # | Test | Checks |
+|---|---|---|
+| 1 | `test_health` | 200, model loaded, classes `['no_tumor', 'tumor']`, resnet18, 224 px, grayscale, threshold 0.986 |
+| 2 | `test_predict_schema_and_probabilities` | fields present, probabilities sum to 1, label follows the 0.986 rule |
+| 3 | `test_parity_with_direct_model` | API probabilities equal the model called directly (difference below 1e-3) |
+| 4 | `test_rejects_wrong_type` | text/plain gives 415 and no stack trace |
+| 5 | `test_rejects_too_large` | 5 MB + 1 byte gives 413 |
+| 6 | `test_rejects_corrupt_image` | bytes that are not an image give 400 |
+| 7 | `test_missing_file_is_422` | no file, no note, or a 2,001-character note give 422 |
+| 8 | `test_analyze_masks_pii` | no CNIC, phone or MRN digits in the response; REFER; urgent terms, fields and placeholders as in Week 7 |
+
+**pytest output (FILL IN: paste the real output):**
+
+```
+FILL IN  (expected:  ........  [100%]   8 passed in ... s)
+```
+
+**Latency benchmark (`bench.py`: 1 warm-up request, then 50 timed requests to `/predict`, one worker). FILL IN with my numbers:**
+
+| Hardware | CPU model | RAM | p50 | p95 | max | Throughput, 1 worker |
+|---|---|---|---|---|---|---|
+| FILL IN | FILL IN | FILL IN | FILL IN ms | FILL IN ms | FILL IN ms | FILL IN requests/s |
+
+**How the numbers are defined.** For $N$ sorted latencies, p50 is the median and p95 is the value that 95% of requests stay below. With $N=50$, NumPy's linear interpolation puts p95 at position $0.95\times(N-1)=46.55$ (counting from 0), between the 47th and 48th fastest requests. Throughput with one worker is
+
+$$\text{throughput}=\frac{1000}{\overline{W}\ [\text{ms}]}\ \text{requests/s}$$
+
+**Little's law.** $L=\lambda W$: the average number of requests in the system equals the arrival rate times the time each request spends in it. One worker handles one request at a time ($L=1$), so its largest sustainable rate and daily volume are
+
+$$\lambda_{\max}=\frac{1}{W},\qquad \text{requests per day}=\frac{86{,}400}{W\ [\text{s}]}$$
+
+Worked example with the lab's reference value $W=p50=45$ ms (**replace with my own p50**): $\lambda_{\max}=1/0.045=22.2$ requests/s and $86{,}400/0.045=1{,}920{,}000$ requests per day. This is an upper bound: it ignores network time and assumes requests arrive without gaps. My result: **FILL IN**.
+
+**One bad input I tried beyond the tests:** **FILL IN** (for example an empty 0-byte `.jpg`, a 3,000-character note on `/analyze`, or a renamed `.txt`) and **what the API returned:** **FILL IN** (status code and message).
+
+## 6. Lab 8 rubric map
+
+| Component | Marks | Evidence in this repository |
+|---|---|---|
+| API endpoints | 3.0 | `/health`, `/predict`, `/analyze` with schemas, serving my Week 6 model |
+| Error handling | 1.5 | 415, 413, 400, 422 (and 401 with a key), no stack traces (section 4) |
+| Tests | 2.0 | 8 tests including parity and PII (section 5) |
+| Latency and capacity | 1.0 | p50, p95, hardware and Little's law (section 5) |
+| README | 1.0 | this section, test output and the answers below |
+
+## 7. Limitations (Week 8)
+
+- This is decision support only; a qualified human decides. Not for diagnosis or treatment decisions.
+- The model was validated on one public Kaggle dataset with no patient ids and only 57 healthy test images; there is no external validation (other scanners, hospitals, populations).
+- The 0.986 threshold comes from my Week 6 validation set. A tumour image scoring 0.90 does not trigger the image reason on its own ($\Delta=2.20<4.25$); the note can still trigger REFER.
+- The test-set PPV (0.997) is not the screening PPV: at 5% prevalence it is about 0.59 (Week 6 notebook, PPV at two prevalences).
+- NER entities are optional (spaCy), and values such as `46` or `T2` can get the wrong type (Week 7 notebook, Part 6); they do not change the decision.
+- Latency numbers depend on my hardware and one CPU process; they are not a deployment guarantee.
+
+## 8. Check Your Understanding (Project 2 README answers)
+
+**1. A client uploads a PDF to `/predict`. Which status code should it get, and why not 500?**
+
+It should get **415 Unsupported Media Type**. The API accepts only `image/jpeg` and `image/png`, and a PDF is neither.
+
+Status codes tell the client who made the mistake. A **4xx** code means the request was wrong and the client can fix it. A **5xx** code means the server failed. A PDF is an expected bad input, not a bug: `read_image()` checks the type first, raises `HTTPException(415, 'Upload a JPEG or PNG image')`, and no model code runs. If the PDF reached `Image.open`, it would fail with an unhandled exception and the client would see a misleading 500, which would also fill the server's error monitoring with noise from a user mistake. The same logic gives **413** for a file over 5 MB, **400** for bytes that are not a readable image, and **422** for a missing field. My test `test_rejects_wrong_type` checks the 415 and that no stack trace is returned.
+
+**2. Why is the model loaded in `lifespan` rather than inside the endpoint?**
+
+Loading means reading the checkpoint file (about 44.7 MB) from disk and building the ResNet-18 network, which takes seconds. If the endpoint did this, every request would pay that cost. With $L$ the load time and $W$ the inference time, $R$ requests cost
+
+$$R\,(L+W)\ \ \text{if loaded per request}\qquad\text{versus}\qquad L+R\,W\ \ \text{if loaded once}$$
+
+and every latency number (p50, p95) would be dominated by $L$. Loading in `lifespan` pays $L$ once, when the server starts, so each request only pays $W$. It also saves memory (one copy of the weights instead of one per request), makes `/health` able to report `model_loaded`, and makes a missing or wrong checkpoint fail at start-up, where I see it, instead of on the first user's request.
+
+**3. $p50=40$ ms and $p95=400$ ms. What does that tell you, and what would you check?**
+
+A typical request is fast, but the slowest 5% take at least 400 ms, which is $400/40=10$ times the median. This is a heavy tail, and the average hides it. Users feel the tail: with a 5% chance that one request is slow, a user who makes 100 requests meets at least one slow one with probability
+
+$$1-0.95^{100}=1-0.0059\approx99.4\%$$
+
+What I would check, in this order:
+1. **Cold start:** the first requests after start-up are slower (caches, memory). Check whether the slow requests are the first ones, and use a warm-up request.
+2. **Other programs** using the CPU, and laptop power or thermal throttling.
+3. **Input size:** whether the slow requests have larger images.
+4. **Queueing:** with concurrent clients, requests wait for each other. Look at p99 and the maximum as well.
+5. **Blocked event loop:** whether heavy code runs inside an `async def` without `run_in_threadpool`.
+6. **Garbage collection pauses** and slow disk reads.
+
+**4. 500,000 requests a day, peak 5 times the average, 25 requests per second per worker. How many workers?**
+
+$$\lambda_{\text{avg}}=\frac{500{,}000}{86{,}400}=5.79\ \text{requests/s},\qquad \lambda_{\text{peak}}=5\times5.79=28.9\ \text{requests/s}$$
+
+$$\text{workers}=\left\lceil\frac{\lambda_{\text{peak}}}{\mu}\right\rceil=\left\lceil\frac{28.9}{25}\right\rceil=\lceil1.16\rceil=\mathbf{2\ workers}$$
+
+One worker would be overloaded at peak ($28.9>25$), so requests would queue. Two workers give a capacity of 50 requests/s, which is 1.7 times the peak. In practice I would plan 3 workers for headroom, because the peak can be higher than 5 times the average and a worker can fail or restart.
+
+**5. Why can model inference inside an `async def` endpoint slow down other requests?**
+
+An `async def` endpoint runs on the server's single event-loop thread, and the loop switches between requests only when code reaches an `await`. A forward pass through ResNet-18 is plain CPU work that never awaits, so for its whole duration $T_{\text{infer}}$ the loop is blocked. Any other request that arrives meanwhile, even a trivial `/health`, has to wait:
+
+$$\text{extra wait for another request}\ \le\ T_{\text{infer}}$$
+
+and with several heavy requests in a row the waits add up. This is why `app.py` calls `await run_in_threadpool(classify, img)`: the heavy work runs in a worker thread (PyTorch releases the Python lock inside its operations), and the event loop stays free to accept and answer other requests. The lab's testing showed the worst-case `/health` latency tripling without it.
+
+**6. How many communication channels does a 4-person team have?**
+
+Every pair of people is one channel, so for $n$ people
+
+$$\text{channels}=\frac{n(n-1)}{2}=\frac{4\times3}{2}=\mathbf{6}$$
+
+| Team size $n$ | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|
+| Channels | 1 | 3 | 6 | 10 |
+
+Channels grow with the square of the team size while output does not, which is why teams of 2 to 3 are used for Projects 3 and 4.
