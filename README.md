@@ -784,7 +784,7 @@ curl.exe -X POST http://127.0.0.1:8000/analyze -F "file=@sample.jpeg;type=image/
 curl.exe -X POST http://127.0.0.1:8000/predict -F "file=@app.py;type=text/plain"          (returns 415)
 ```
 
-**Probabilities and the operating point.** The two output logits become probabilities with the softmax, and for two classes $P(\text{tumor})$ depends only on the logit gap $\Delta=z_{\text{tumor}}-z_{\text{no\_tumor}}$:
+**Probabilities and the operating point.** The two output logits become probabilities with the softmax, and for two classes $P(\text{tumor})$ depends only on the logit gap $\Delta=z_{\text{tumor}}-z_{\text{no tumor}}$:
 
 $$p_c=\frac{e^{z_c}}{\sum_j e^{z_j}},\qquad p_{\text{tumor}}=\frac{1}{1+e^{-\Delta}},\qquad \Delta=\ln\frac{p}{1-p}$$
 
@@ -793,7 +793,7 @@ $$p_c=\frac{e^{z_c}}{\sum_j e^{z_j}},\qquad p_{\text{tumor}}=\frac{1}{1+e^{-\Del
 | 0.500 | $\ln\frac{0.5}{0.5}=0$ | plain argmax |
 | **0.986** | $\ln\frac{0.986}{0.014}=\ln 70.43=\mathbf{4.25}$ | Week 6 operating point: the model must favour "tumor" by more than 4.25 logits |
 
-$$\text{positive\_flag}=\big[\,p_{\text{tumor}}\ge0.986\,\big],\qquad \text{label}=\begin{cases}\text{tumor}&\text{if positive\_flag}\\ \text{no\_tumor}&\text{otherwise}\end{cases}$$
+$$\text{positive flag}=\big[\,p_{\text{tumor}}\ge0.986\,\big],\qquad \text{label}=\begin{cases}\text{tumor}&\text{if positive flag}\\ \text{no tumor}&\text{otherwise}\end{cases}$$
 
 **Decision rule for `/analyze` (same as Week 7).**
 
