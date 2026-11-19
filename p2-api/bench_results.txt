@@ -1,0 +1,53 @@
+=== Hardware ===
+CPU : Intel(R) Core(TM) i7-8650U CPU @ 1.90GHz  (8 logical cores)
+RAM : 7.8 GB
+OS  : Windows 11 | Python 3.15.2
+Server: 1 uvicorn process, 1 worker
+Image : sample.jpeg (22 KB)
+
+=== Checks against my notebooks ===
+Server settings vs my notebooks:
+  [OK] model loaded
+  [OK] classes ['no_tumor', 'tumor'] (Week 6)  (server says ['no_tumor', 'tumor'])
+  [OK] positive class is tumor
+  [OK] threshold 0.986 (Week 6 operating point)  (server says 0.986)
+  [OK] resnet18, 224 px, grayscale
+  spaCy entities enabled: True (optional: pip install spacy, python -m spacy download en_core_web_sm)
+
+Your sample.jpeg: label=no_tumor  P(no_tumor)=0.9575  P(tumor)=0.0425  flagged=False (threshold 0.986)
+  For comparison (Week 7 notebook): Te-gl_1.jpg gave P(tumor)=0.996, Te-no_1.jpg gave P(tumor)=0.017
+
+Case record for the Week 7 note:
+  [OK] decision is REFER  (got REFER)
+  [OK] urgent terms headache, seizure, vomit
+  [OK] masked: [CNIC] [PHONE] [MRN]
+  [OK] fields: 2.5 cm, age 46, T2, 10/11/2026
+  [OK] PII fragments found in the JSON: none
+
+=== Latency ===
+/predict  n=50  p50=57 ms  p95=60 ms  max=61 ms  mean=56 ms
+          Throughput with 1 worker ~ 18.0 requests/s
+/analyze  n=50  p50=74 ms  p95=78 ms  max=79 ms  mean=72 ms
+          Throughput with 1 worker ~ 13.8 requests/s
+
+=== Capacity (Little's law, L = lambda x W, L = 1 worker) ===
+  /predict: W = p50 = 57 ms -> 17.6 requests/s -> 1,520,492 requests/day for one worker (upper bound)
+  /analyze: W = p50 = 74 ms -> 13.6 requests/s -> 1,173,786 requests/day for one worker (upper bound)
+
+=== Bad inputs ===
+Bad-input checks (expected 415, 413, 400, 422, 422):
+  [OK] text file sent to /predict       -> 415  (Upload a JPEG or PNG image)
+  [OK] image of 5 MB + 1 byte           -> 413  (Image larger than 5 MB)
+  [OK] bytes that are not an image      -> 400  (File is not a readable image)
+  [OK] no file at all                   -> 422  ([{'type': 'missing', 'loc': ['body', 'file'], 'msg': 'Field )
+  [OK] 3,000-character note to /analyze -> 422  (Note longer than 2,000 characters)
+
+=== Paste into the README (section 4) ===
+| Hardware | CPU model | RAM | p50 | p95 | max | Throughput, 1 worker |
+|---|---|---|---|---|---|---|
+| Windows 11, 8 logical cores | Intel(R) Core(TM) i7-8650U CPU @ 1.90GHz | 7.8 GB | 57 ms | 60 ms | 61 ms | 18.0 requests/s |
+
+Little's law: 1 / 0.057 s = 17.6 requests/s x 86,400 s = about 1.52 million requests per day for one worker.
+Bad input I tried: a text file sent to /predict. The API returned 415 "Upload a JPEG or PNG image".
+
+15 of 15 checks OK. Everything matches my notebooks.
