@@ -736,8 +736,8 @@ A missed tumour costs more than an extra review, so any positive source keeps th
 - **Operating point:** `tumor` is flagged when $P(\text{tumor})\ge0.986$ (Week 6, chosen on validation for recall $\ge0.95$; test sensitivity 0.972, specificity 0.965)
 - **Text evidence (Week 7):** PII masked first (CNIC, mobile, e-mail, MRN), regex fields, brain-tumour urgent terms, optional spaCy entities
 - **Safety:** 5 MB upload limit, 2,000-character note limit, wrong or corrupt files rejected with 4xx codes (never a stack trace), optional API key
-- **Tests:** 8 automated tests (API, parity with the direct model, errors, PII): **FILL IN** (paste the pytest line, expected `8 passed`)
-- **Latency:** **FILL IN** p50 and p95 with my hardware (section 5)
+- **Tests:** 8 automated tests (API, parity with the direct model, errors, PII), **all passing** (output and screenshot in section 5)
+- **Latency:** `/predict` p50 57 ms and p95 60 ms, `/analyze` p50 74 ms and p95 78 ms (50 requests, one worker, Intel Core i7-8650U, 7.8 GB RAM; section 5)
 
 ## 1. Architecture
 
@@ -847,7 +847,11 @@ curl.exe -X POST http://127.0.0.1:8000/predict -F "file=@sample.jpeg;type=image/
 curl.exe -X POST http://127.0.0.1:8000/predict -H "X-API-Key: choose-a-long-secret" -F "file=@sample.jpeg;type=image/jpeg"   (200)
 ```
 
-The call without the header returns 401, and the call with it returns the prediction (see the screenshot below). The key is never committed to GitHub.
+The call without the header returns 401, and the call with it returns the prediction. The key is never committed to GitHub.
+
+| API key: 401 without the key, 200 with it |
+|---|
+| ![API key demo: 401 without the key, 200 with it](https://raw.githubusercontent.com/umarkhan362-source/Project_-2_Deep_Learning_Applications/main/using_API_Key.png) |
 
 ## 5. Tests and latency (my measured results)
 
@@ -864,17 +868,35 @@ Eight automated tests in `test_api.py` (one shared client, so the model loads on
 | 7 | `test_missing_file_is_422` | no file, no note, or a 2,001-character note give 422 |
 | 8 | `test_analyze_masks_pii` | no CNIC, phone or MRN digits in the response; REFER; urgent terms, fields and placeholders as in Week 7 |
 
-**pytest output (FILL IN: paste the real output):**
+**pytest output (`pytest -q test_api.py`):**
 
 ```
-FILL IN  (expected:  ........  [100%]   8 passed in ... s)
+........                                                                 [100%]
+8 passed
 ```
 
-**Latency benchmark (`bench.py`: 1 warm-up request, then 50 timed requests to `/predict`, one worker). FILL IN with my numbers:**
+![pytest: 8 passed](https://raw.githubusercontent.com/umarkhan362-source/Project_-2_Deep_Learning_Applications/main/png_test.png)
 
-| Hardware | CPU model | RAM | p50 | p95 | max | Throughput, 1 worker |
-|---|---|---|---|---|---|---|
-| FILL IN | FILL IN | FILL IN | FILL IN ms | FILL IN ms | FILL IN ms | FILL IN requests/s |
+**Benchmark run (`python bench.py`: 1 warm-up request, then 50 timed requests per endpoint; one uvicorn process with one worker, started without an API key):**
+
+| Hardware | Value |
+|---|---|
+| CPU | Intel(R) Core(TM) i7-8650U CPU @ 1.90GHz (8 logical cores) |
+| RAM | 7.8 GB |
+| OS | Windows 11, Python 3.15.2 |
+
+| Endpoint | p50 | p95 | max | mean | Throughput, 1 worker |
+|---|---|---|---|---|---|
+| `/predict` | **57 ms** | **60 ms** | 61 ms | 56 ms | 18.0 requests/s |
+| `/analyze` | 74 ms | 78 ms | 79 ms | 72 ms | 13.8 requests/s |
+
+`/analyze` costs about 17 ms more than `/predict`: it also masks the note, runs the regex patterns and the spaCy entity step (`entities_enabled` is true). The tail is tight: $p95/p50=60/57=1.05$, so after the warm-up request there is no cold-start or slow-request problem (question 3 shows what a ratio of 10 would mean).
+
+**What `bench.py` also checked (15 of 15 checks OK, against my notebook values):**
+
+- server settings: model loaded, classes `['no_tumor', 'tumor']`, positive class `tumor`, threshold 0.986, resnet18 at 224 px in grayscale
+- my `sample.jpeg`: label `no_tumor`, $P(\text{no tumor})=0.9575$, $P(\text{tumor})=0.0425$, so it stays below the 0.986 threshold and is not flagged (the Week 7 notebook gave $P(\text{tumor})=0.996$ for `Te-gl_1.jpg` and 0.017 for `Te-no_1.jpg`)
+- the Week 7 note: decision REFER, urgent terms headache, seizure and vomit, placeholders `[CNIC]`, `[PHONE]` and `[MRN]`, fields `2.5 cm`, age `46`, `T2` and `10/11/2026`, and no PII fragment anywhere in the JSON
 
 **How the numbers are defined.** For $N$ sorted latencies, p50 is the median and p95 is the value that 95% of requests stay below. With $N=50$, NumPy's linear interpolation puts p95 at position $0.95\times(N-1)=46.55$ (counting from 0), between the 47th and 48th fastest requests. Throughput with one worker is
 
@@ -884,18 +906,28 @@ $$\text{throughput}=\frac{1000}{\overline{W}\ [\text{ms}]}\ \text{requests/s}$$
 
 $$\lambda_{\max}=\frac{1}{W},\qquad \text{requests per day}=\frac{86{,}400}{W\ [\text{s}]}$$
 
-Worked example with the lab's reference value $W=p50=45$ ms (**replace with my own p50**): $\lambda_{\max}=1/0.045=22.2$ requests/s and $86{,}400/0.045=1{,}920{,}000$ requests per day. This is an upper bound: it ignores network time and assumes requests arrive without gaps. My result: **FILL IN**.
+My measured result for `/predict`: the p50 is $W=56.8$ ms (printed as 57 ms), so $\lambda_{\max}=1/0.0568=17.6$ requests/s and $17.6\times86{,}400\approx1.52$ million requests per day for one worker (`bench.py` printed 1,520,492, using the unrounded p50). For `/analyze`, $W=73.6$ ms gives 13.6 requests/s, about 1.17 million requests per day (1,173,786). These are upper bounds: they ignore network time and assume requests arrive without gaps. The lab's reference value (p50 = 45 ms, 22.2 requests/s, 1,920,000 per day) came from a different machine.
 
-**One bad input I tried beyond the tests:** **FILL IN** (for example an empty 0-byte `.jpg`, a 3,000-character note on `/analyze`, or a renamed `.txt`) and **what the API returned:** **FILL IN** (status code and message).
+**Bad inputs sent to the running server (`bench.py`, all handled correctly, no stack trace):**
+
+| Bad input | Status | Message |
+|---|---|---|
+| a text file sent to `/predict` | **415** | Upload a JPEG or PNG image |
+| an image of 5 MB + 1 byte | **413** | Image larger than 5 MB |
+| bytes that are not an image | **400** | File is not a readable image |
+| no file at all | **422** | validation error (field `file` is required) |
+| a note of 3,000 characters sent to `/analyze` | **422** | Note longer than 2,000 characters |
+
+**One bad input beyond the tests:** a note of 3,000 characters sent to `/analyze` (the pytest case uses 2,001). The API returned **422** with `Note longer than 2,000 characters`, and the server kept running.
 
 ## 6. Lab 8 rubric map
 
 | Component | Marks | Evidence in this repository |
 |---|---|---|
 | API endpoints | 3.0 | `/health`, `/predict`, `/analyze` with schemas, serving my Week 6 model |
-| Error handling | 1.5 | 415, 413, 400, 422 (and 401 with a key), no stack traces (section 4) |
-| Tests | 2.0 | 8 tests including parity and PII (section 5) |
-| Latency and capacity | 1.0 | p50, p95, hardware and Little's law (section 5) |
+| Error handling | 1.5 | 415, 413, 400, 422 (and 401 with a key, screenshot in section 4), no stack traces |
+| Tests | 2.0 | 8 tests including parity and PII, 8 passed, with screenshot (section 5) |
+| Latency and capacity | 1.0 | p50 57 ms, p95 60 ms, hardware (i7-8650U, 7.8 GB) and Little's law: 1.52 million requests/day (section 5) |
 | README | 1.0 | this section, test output and the answers below |
 
 ## 7. Limitations (Week 8)
@@ -937,6 +969,8 @@ What I would check, in this order:
 5. **Blocked event loop:** whether heavy code runs inside an `async def` without `run_in_threadpool`.
 6. **Garbage collection pauses** and slow disk reads.
 
+For comparison, my own benchmark has $p50=57$ ms and $p95=60$ ms, a ratio of only 1.05, so my service shows no heavy tail.
+
 **4. 500,000 requests a day, peak 5 times the average, 25 requests per second per worker. How many workers?**
 
 $$\lambda_{\text{avg}}=\frac{500{,}000}{86{,}400}=5.79\ \text{requests/s},\qquad \lambda_{\text{peak}}=5\times5.79=28.9\ \text{requests/s}$$
@@ -944,6 +978,8 @@ $$\lambda_{\text{avg}}=\frac{500{,}000}{86{,}400}=5.79\ \text{requests/s},\qquad
 $$\text{workers}=\left\lceil\frac{\lambda_{\text{peak}}}{\mu}\right\rceil=\left\lceil\frac{28.9}{25}\right\rceil=\lceil1.16\rceil=\mathbf{2\ workers}$$
 
 One worker would be overloaded at peak ($28.9>25$), so requests would queue. Two workers give a capacity of 50 requests/s, which is 1.7 times the peak. In practice I would plan 3 workers for headroom, because the peak can be higher than 5 times the average and a worker can fail or restart.
+
+With my own measured rates the answer is the same for `/predict` and larger for `/analyze`: $\lceil28.9/17.6\rceil=\lceil1.64\rceil=2$ workers for `/predict`, and $\lceil28.9/13.6\rceil=\lceil2.13\rceil=3$ workers for `/analyze`.
 
 **5. Why can model inference inside an `async def` endpoint slow down other requests?**
 
