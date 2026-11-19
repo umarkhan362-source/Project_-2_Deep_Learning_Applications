@@ -736,7 +736,7 @@ A missed tumour costs more than an extra review, so any positive source keeps th
 - **Operating point:** `tumor` is flagged when $P(\text{tumor})\ge0.986$ (Week 6, chosen on validation for recall $\ge0.95$; test sensitivity 0.972, specificity 0.965)
 - **Text evidence (Week 7):** PII masked first (CNIC, mobile, e-mail, MRN), regex fields, brain-tumour urgent terms, optional spaCy entities
 - **Safety:** 5 MB upload limit, 2,000-character note limit, wrong or corrupt files rejected with 4xx codes (never a stack trace), optional API key
-- **Tests:** 8 automated tests (API, parity with the direct model, errors, PII), **all passing** (output and screenshot in section 5)
+- **Tests:** 8 automated tests (API, parity with the direct model, errors, PII), **all passing** (8 passed in 7.53 s; output and screenshot in section 5)
 - **Latency:** `/predict` p50 57 ms and p95 60 ms, `/analyze` p50 74 ms and p95 78 ms (50 requests, one worker, Intel Core i7-8650U, 7.8 GB RAM; section 5)
 
 ## 1. Architecture
@@ -871,11 +871,20 @@ Eight automated tests in `test_api.py` (one shared client, so the model loads on
 **pytest output (`pytest -q test_api.py`):**
 
 ```
-........                                                                 [100%]
-8 passed
+(.venv) C:\Users\Administrator\p2-api>pytest -q test_api.py
+........                                                                          [100%]
+=============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\Administrator\p2-api\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+8 passed, 1 warning in 7.53s
 ```
 
-![pytest: 8 passed](https://raw.githubusercontent.com/umarkhan362-source/Project_-2_Deep_Learning_Applications/main/png_test.png)
+![pytest: 8 passed, 1 warning in 7.53s](https://raw.githubusercontent.com/umarkhan362-source/Project_-2_Deep_Learning_Applications/main/png_test.png)
+
+All 8 tests pass in 7.53 s. The one warning comes from a newer testing library (`httpx2`) and does not affect the result; `pytest.ini` in `p2-api` hides it.
 
 **Benchmark run (`python bench.py`: 1 warm-up request, then 50 timed requests per endpoint; one uvicorn process with one worker, started without an API key):**
 
@@ -926,7 +935,7 @@ My measured result for `/predict`: the p50 is $W=56.8$ ms (printed as 57 ms), so
 |---|---|---|
 | API endpoints | 3.0 | `/health`, `/predict`, `/analyze` with schemas, serving my Week 6 model |
 | Error handling | 1.5 | 415, 413, 400, 422 (and 401 with a key, screenshot in section 4), no stack traces |
-| Tests | 2.0 | 8 tests including parity and PII, 8 passed, with screenshot (section 5) |
+| Tests | 2.0 | 8 tests including parity and PII, 8 passed in 7.53 s, with screenshot (section 5) |
 | Latency and capacity | 1.0 | p50 57 ms, p95 60 ms, hardware (i7-8650U, 7.8 GB) and Little's law: 1.52 million requests/day (section 5) |
 | README | 1.0 | this section, test output and the answers below |
 
